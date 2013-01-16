@@ -8,6 +8,7 @@ Display CSV files from the command line
 import os
 import csv
 import sys
+import platform
 
 from optparse import OptionParser
 try:
@@ -16,8 +17,12 @@ except ImportError:
     print 'Error: Please install prettytable "easy_install prettytable"'
     os._exit(-1)
 
-INFO = "\033[1m\033[36m[*]\033[0m "
-WARN = "\033[1m\033[31m[!]\033[0m "
+if platform.system().lower() in ['linux', 'darwin']:
+    INFO = "\033[1m\033[36m[*]\033[0m "
+    WARN = "\033[1m\033[31m[!]\033[0m "
+else:
+    INFO = "[*] "
+    WARN = "[!] "
 
 def display_info(msg):
     sys.stdout.write(chr(27) + '[2K')
@@ -52,11 +57,20 @@ def extract_csv(field_name, file_path, verbose=False):
                 results.append(row[field_index])
     return results
 
-def save_file(fpath, table_data, verbose=False):
+def save_table(fpath, table, start=0, end=None, fields=None, html=False, verbose=False):
     if verbose: 
         display_info('Saving data to %s ...' % fpath)
     with open(fpath, 'w') as outfile:
-        outfile.write(table_data)
+        if fields is None: 
+            fields = table.field_names
+        else:
+            fields = filter(lambda field: field in table.field_names, fields.split(","))
+        if html:
+            outfile.write("<html>\n")
+            outfile.write(table.get_html_string(start=start, end=end, fields=fields))
+            outfile.write("\n</html>\n")
+        else:
+            outfile.write(table.get_string(start=start, end=end, fields=fields) + '\n')
     if verbose: 
         display_info('Saving data to %s ... done!\n' % fpath)
 
@@ -97,10 +111,16 @@ if __name__ == '__main__':
         help="Display table starting at a given index",
         default=0)
     parser.add_option(
-        "-x", "--extract",
+        "-e", "--end",
+        type="int",
+        dest="end", 
+        help="Display table ending at a given index",
+        default=None)
+    parser.add_option(
+        "-m", "--html",
         action="store_true",
-        dest="extract", 
-        help="Extract all values for a given field",
+        dest="html", 
+        help="Write output file as HTML",
         default=False)
     (options, args) = parser.parse_args()
     if len(args) == 0:
@@ -112,18 +132,24 @@ if __name__ == '__main__':
     if options.verbose: 
         display_info('Reading %s, please wait...\n' % args[0])
     table = parse_csv(args[0], verbose=options.verbose)
-    table_data = table.get_string(start=options.start)
     if options.console:
         if options.header:
-            for name in table.field_names: print '\t%s' % name
+            for name in table.field_names: 
+                print '\t%s' % name
         elif options.filter is not None:
-            try:
-                table_data = table.get_string(
-                    start=options.start,
-                    fields=options.filter.split(",")
-                )
-            except:
-                print WARN + "Invalid filter argument, see --columns"
-    print table_data
+            filter_names = []
+            for name in options.filter.split(","):
+                if name not in table.field_names and options.verbose:
+                    print WARN + "Invalid column name:", name
+                elif name in table.field_names:
+                    filter_names.append(name)
+            print table.get_string(start=options.start, end=options.end, fields=filter_names)
+        else:
+            print table.get_string(start=options.start, end=options.end)
     if options.file is not None:
-        save_file(options.file, table_data, options.verbose)
+        save_table(options.file, table, 
+            start=options.start, 
+            end=options.end,
+            fields=options.filter,
+            html=options.html,
+            verbose=options.verbose)
